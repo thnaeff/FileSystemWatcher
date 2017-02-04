@@ -1,31 +1,33 @@
 package ch.thn.file.filesystemwatcher;
 
-import static org.hamcrest.CoreMatchers.*;
-import static org.junit.Assert.*;
+import static org.hamcrest.CoreMatchers.hasItem;
+import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 import java.io.File;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+
 import org.junit.Test;
 
 
 /**
- * 
- * 
+ *
+ *
  * @author Thomas Naeff (github.com/thnaeff)
  *
  */
 public class ListenerTest {
 
 
-  private Collection<Path> watchedPaths = new ArrayList<>();
+  private final Collection<Path> watchedPaths = new ArrayList<>();
 
-  private List<Path> changeDetected = new ArrayList<>();
-  private List<Path> createDetected = new ArrayList<>();
-  private List<Path> deleteDetected = new ArrayList<>();
-  private List<Path> modifyDetected = new ArrayList<>();
+  private final List<Path> changeDetected = new ArrayList<>();
+  private final List<Path> createDetected = new ArrayList<>();
+  private final List<Path> deleteDetected = new ArrayList<>();
+  private final List<Path> modifyDetected = new ArrayList<>();
 
 
   @Test
@@ -70,12 +72,17 @@ public class ListenerTest {
     // Check that deletion worked
     assertTrue(res);
 
+    //Give the watcher time to react...
+    Thread.sleep(1000);
+
+    System.out.println("All created: " + createDetected);
+    System.out.println("All deleted: " + deleteDetected);
 
     // Check that creation and deletion was reported by watcher
     assertThat(createDetected, hasItem(f2.toPath()));
     assertThat(deleteDetected, hasItem(f2.toPath()));
 
-    
+
     System.out.println("Shutting down watcher thread...");
     watcher.stop(true);
     System.out.println("Done");
@@ -85,8 +92,8 @@ public class ListenerTest {
 
 
   /********************************************************************************
-   * 
-   * 
+   *
+   *
    * @author Thomas Naeff (github.com/thnaeff)
    *
    */
