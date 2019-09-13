@@ -14,6 +14,10 @@
  */
 package ch.thn.file.filesystemwatcher;
 
+import ch.thn.thread.controlledrunnable.ControlledRunnable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.File;
 import java.io.FilenameFilter;
 import java.io.IOException;
@@ -35,10 +39,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import ch.thn.thread.controlledrunnable.ControlledRunnable;
 
 /**
  * The file system watcher watches one or multiple directories for changes. This can be file or
@@ -304,7 +304,8 @@ public class FileSystemWatcher extends ControlledRunnable {
             StandardWatchEventKinds.ENTRY_DELETE, StandardWatchEventKinds.ENTRY_MODIFY);
       }
     } catch (Exception e) {
-      throw new PathWatcherError("Failed to register path " + dir, e);
+      throw new PathWatcherError("Failed to register path "
+          + dir, e);
     }
 
     // If its the same one it will just be updated
@@ -331,13 +332,15 @@ public class FileSystemWatcher extends ControlledRunnable {
           try {
             register(dir, true);
           } catch (Exception e) {
-            logger.warn("Failed to recursively register child path " + dir, e);
+            logger.warn("Failed to recursively register child path "
+                + dir, e);
           }
           return FileVisitResult.CONTINUE;
         }
       });
     } catch (IOException e) {
-      logger.warn("Failed to recursively register path and children of " + path, e);
+      logger.warn("Failed to recursively register path and children of "
+          + path, e);
     }
 
   }
@@ -355,7 +358,8 @@ public class FileSystemWatcher extends ControlledRunnable {
       try {
         register(p, false);
       } catch (Exception e) {
-        logger.warn("Failed to recursively register parent path " + path, e);
+        logger.warn("Failed to recursively register parent path "
+            + path, e);
       }
       p = p.getParent();
     }
@@ -492,6 +496,6 @@ public class FileSystemWatcher extends ControlledRunnable {
 
 
   }
-  
+
 
 }

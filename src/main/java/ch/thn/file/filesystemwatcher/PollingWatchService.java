@@ -14,6 +14,8 @@
  */
 package ch.thn.file.filesystemwatcher;
 
+import ch.thn.thread.controlledrunnable.ControlledRunnable;
+
 import java.io.File;
 import java.io.FilenameFilter;
 import java.io.IOException;
@@ -31,8 +33,6 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
-
-import ch.thn.thread.controlledrunnable.ControlledRunnable;
 
 /**
  * An implementation of a {@link WatchService} which periodically checks the registered paths for

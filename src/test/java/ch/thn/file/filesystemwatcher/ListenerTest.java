@@ -4,13 +4,13 @@ import static org.hamcrest.CoreMatchers.hasItem;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import org.junit.Test;
+
 import java.io.File;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-
-import org.junit.Test;
 
 
 /**
@@ -44,7 +44,8 @@ public class ListenerTest {
     Thread.sleep(1000);
 
     File f = new File("target/classes");
-    File f2 = new File(f.getPath() + "/test_new");
+    File f2 = new File(f.getPath()
+        + "/test_new");
 
     // Clean up first if path exists
     if (f2.exists()) {
@@ -60,23 +61,27 @@ public class ListenerTest {
 
 
 
-    System.out.println("> Creating " + f2.getPath());
+    System.out.println("> Creating "
+        + f2.getPath());
     boolean res = f2.mkdir();
 
     // Check that creation worked
     assertTrue(res);
 
-    System.out.println("> Deleting " + f2.getPath());
+    System.out.println("> Deleting "
+        + f2.getPath());
     res = f2.delete();
 
     // Check that deletion worked
     assertTrue(res);
 
-    //Give the watcher time to react...
+    // Give the watcher time to react...
     Thread.sleep(1000);
 
-    System.out.println("All created: " + createDetected);
-    System.out.println("All deleted: " + deleteDetected);
+    System.out.println("All created: "
+        + createDetected);
+    System.out.println("All deleted: "
+        + deleteDetected);
 
     // Check that creation and deletion was reported by watcher
     assertThat(createDetected, hasItem(f2.toPath()));
@@ -102,7 +107,8 @@ public class ListenerTest {
     @Override
     public void newPathWatched(Path path) {
 
-      System.out.println("New path watched: " + path);
+      System.out.println("New path watched: "
+          + path);
       watchedPaths.add(path);
 
     }
@@ -111,8 +117,10 @@ public class ListenerTest {
     public void pathChanged(Path path, Path context, boolean overflow) {
 
       System.out.println("Changed:");
-      System.out.println("  Path=" + path);
-      System.out.println("  Change=" + context);
+      System.out.println("  Path="
+          + path);
+      System.out.println("  Change="
+          + context);
       changeDetected.add(path);
 
     }
@@ -121,8 +129,10 @@ public class ListenerTest {
     public void directoryCreated(Path path, Path created) {
 
       System.out.println("Created:");
-      System.out.println("  Path=" + path);
-      System.out.println("  New=" + created);
+      System.out.println("  Path="
+          + path);
+      System.out.println("  New="
+          + created);
       createDetected.add(created);
 
     }
@@ -131,8 +141,10 @@ public class ListenerTest {
     public void directoryDeleted(Path path, Path deleted) {
 
       System.out.println("Deleted:");
-      System.out.println("  Path=" + path);
-      System.out.println("  Del=" + deleted);
+      System.out.println("  Path="
+          + path);
+      System.out.println("  Del="
+          + deleted);
       deleteDetected.add(deleted);
 
     }
@@ -141,8 +153,10 @@ public class ListenerTest {
     public void directoryModified(Path path, Path modified) {
 
       System.out.println("Modified:");
-      System.out.println("  Path=" + path);
-      System.out.println("  Mod=" + modified);
+      System.out.println("  Path="
+          + path);
+      System.out.println("  Mod="
+          + modified);
       modifyDetected.add(modified);
 
     }
