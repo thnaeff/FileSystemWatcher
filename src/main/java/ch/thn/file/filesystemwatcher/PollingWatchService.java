@@ -10,358 +10,363 @@
  * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
  * or implied. See the License for the specific language governing permissions and limitations under
  * the License.
- * 
+ *
  */
 package ch.thn.file.filesystemwatcher;
 
-import ch.thn.thread.controlledrunnable.ControlledRunnable;
-
 import java.io.File;
+import java.io.FileFilter;
 import java.io.FilenameFilter;
 import java.io.IOException;
-import java.nio.file.ClosedWatchServiceException;
 import java.nio.file.Path;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
-import java.nio.file.WatchEvent.Kind;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.nio.file.Watchable;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Set;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+
+import org.apache.commons.io.monitor.FileAlterationListener;
+import org.apache.commons.io.monitor.FileAlterationMonitor;
+import org.apache.commons.io.monitor.FileAlterationObserver;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * An implementation of a {@link WatchService} which periodically checks the registered paths for
  * changes.
- * 
- * 
- * 
+ *
+ *
+ *
  *
  * @author Thomas Naeff (github.com/thnaeff)
  *
  */
-public class PollingWatchService extends ControlledRunnable implements WatchService {
+public class PollingWatchService implements WatchService {
 
-  private long pollTimeout = 0;
+  private static final Logger logger = LoggerFactory.getLogger(PollingWatchService.class);
 
-  private ConcurrentHashMap<Path, PollingWatchKey> registeredPaths = null;
-
-  /**
-   * A directory and all the files and their last modified timestamps<br />
-   * &lt;Directory, &lt;File path, last modified timestamp&gt;&gt;
-   */
-  private ConcurrentHashMap<Path, Map<Path, Long>> lastModified = null;
+  private Set<PollingWatchKey> registeredAndActiveKeys = null;
 
   /**
    * A FIFO list of all the watch keys which have events pending
    */
   private LinkedBlockingQueue<PollingWatchKey> keysWithEvents = null;
 
-  private FilenameFilter fileNameFilter = null;
+  private final FileAlterationMonitor monitor;
+  private final FileAlterationListener listener;
+
+  private boolean isReady = false;
 
   /**
-   * 
-   * 
-   * @param pollTimeout The timeout to wait between two file checks.
+   *
+   *
+   * @param pollTimeout The timeout to wait between two file checks (the polling interval).
+   * @param timeUnit The unit of the poll timeout
    */
-  protected PollingWatchService(long pollTimeout) {
-    this(pollTimeout, null);
+  public PollingWatchService(long pollTimeout, TimeUnit timeUnit) {
+    this(pollTimeout, timeUnit, null);
   }
 
   /**
-   * 
-   * 
-   * @param pollTimeout The timeout to wait between two file checks.
+   *
+   *
+   * @param pollTimeout The timeout to wait between two file checks (the polling interval).
+   * @param timeUnit The unit of the poll timeout
    * @param fileNameFilter A filter to only check the filtered files. This can be a big performance
    *        improvements when dealing with large and/or many directories
    */
-  protected PollingWatchService(long pollTimeout, FilenameFilter fileNameFilter) {
-    super(true, true);
-
-    this.pollTimeout = pollTimeout;
-    this.fileNameFilter = fileNameFilter;
-
-    registeredPaths = new ConcurrentHashMap<Path, PollingWatchKey>();
-    lastModified = new ConcurrentHashMap<Path, Map<Path, Long>>();
-    keysWithEvents = new LinkedBlockingQueue<PollingWatchKey>();
-
+  public PollingWatchService(long pollTimeout, TimeUnit timeUnit, FilenameFilter fileNameFilter) {
+    long millis = timeUnit.toMillis(pollTimeout);
+    monitor = new FileAlterationMonitor(millis);
+    listener = new PollingFileAlterationListener(this::isReady, this::changeHappened);
+    keysWithEvents = new LinkedBlockingQueue<>();
+    registeredAndActiveKeys = Collections.synchronizedSet(new HashSet<>());
   }
 
-
-
-  @Override
-  public void run() {
-    runStart();
-
-    while (!isStopRequested()) {
-      runReset();
-      runPause(false);
-
-      if (isStopRequested()) {
-        break;
-      }
-
-      if (isPauseRequested() || isResetRequested()) {
-        continue;
-      }
-
-      lookForChanges();
-
-      controlledWait(pollTimeout);
-
-    }
-
-    registeredPaths.clear();
-    lastModified.clear();
-    keysWithEvents.clear();
-
-    for (PollingWatchKey key : registeredPaths.values()) {
-      key.cancel();
-    }
-
-    notifyWaitingTake();
-
-    runEnd();
-  }
-
-
-  /**
-   * 
-   * 
-   */
-  private void lookForChanges() {
-
-    // Set<Path> tempPaths = new HashSet<>();
-
-    for (Path directoryPath : registeredPaths.keySet()) {
-      // If a registered path gets deleted because it does not exist any more
-      // and it is the next path in line, it still gets returned. Check here again
-      // if it it still available.
-      if (!registeredPaths.containsKey(directoryPath)) {
-        continue;
-      }
-
-      File directory = directoryPath.toFile();
-      PollingWatchKey key = registeredPaths.get(directoryPath);
-
-
-      // Does registered directory still exist?
-      if (!directory.exists()) {
-        entryDelete(key, directoryPath);
-        continue;
-      }
-
-      File[] files = null;
-      if (fileNameFilter != null) {
-        files = directory.listFiles(fileNameFilter);
-      } else {
-        files = directory.listFiles();
-      }
-
-      if (!lastModified.containsKey(directoryPath)) {
-        // It is a new path which has just been added and has not been checked yet.
-        // Record all files and their modified timestamp
-
-        Map<Path, Long> filesMap = new ConcurrentHashMap<Path, Long>();
-        lastModified.put(directoryPath, filesMap);
-
-        for (File f : files) {
-          Path filePath = f.toPath();
-          long fileLastModified = f.lastModified();
-
-          filesMap.put(filePath, fileLastModified);
-        }
-
-      } else {
-        Map<Path, Long> directoryFileMap = lastModified.get(directoryPath);
-
-        // Check all existing files
-        for (File f : files) {
-          Path filePath = f.toPath();
-          long fileLastModified = f.lastModified();
-
-          if (directoryFileMap.containsKey(filePath)) {
-            // File has previously been around
-
-            if (filePath.toFile().exists()) {
-              // Modified?
-
-              long oldLastModified = directoryFileMap.get(filePath);
-
-              if (oldLastModified < fileLastModified) {
-                // New modification date on current file
-                directoryFileMap.put(filePath, fileLastModified);
-                fileModified(key, filePath, StandardWatchEventKinds.ENTRY_MODIFY);
-              }
-            }
-
-          } else {
-            // File has not been recorded yet and must therefore be new
-            directoryFileMap.put(filePath, fileLastModified);
-            fileModified(key, filePath, StandardWatchEventKinds.ENTRY_CREATE);
-          }
-        }
-
-        // Go through the list of recorded files and check if they all still exist
-        for (Path path : directoryFileMap.keySet()) {
-          File f = path.toFile();
-          if (!f.exists()) {
-            entryDelete(key, path);
-          }
-        }
-
-      }
-    }
-
-  }
-
-  /**
-   * 
-   * 
-   * @param key
-   * @param path
-   */
-  private void entryDelete(PollingWatchKey key, Path path) {
-
-    // Unregister
-    registeredPaths.remove(path);
-
-    // Clear last modified records
-    lastModified.remove(path);
-
-    // If its parent path is in the list of modified, clear its record
-    Path parent = path.getParent();
-    // Because the parent path object is a new one, the paths have to be compared one by one
-    for (Path p : lastModified.keySet()) {
-      if (p.equals(parent)) {
-        lastModified.get(p).remove(path);
-      }
-    }
-
-    fileModified(key, path, StandardWatchEventKinds.ENTRY_DELETE);
-
-  }
-
-
-  /**
-   * 
-   * 
-   * @param key
-   * @param path
-   */
-  private void fileModified(PollingWatchKey key, Path path, Kind<Path> kind) {
-    key.addWatchEvent(new PollingWatchEvent(path, kind));
-    keysWithEvents.add(key);
-
-    synchronized (keysWithEvents) {
-      keysWithEvents.notify();
+  public void start() throws IOException {
+    try {
+      monitor.start();
+    } catch (Exception exc) {
+      throw new IOException("Failed to start monitor", exc);
     }
   }
-
-  /**
-   * 
-   * 
-   */
-  private void notifyWaitingTake() {
-    synchronized (keysWithEvents) {
-      keysWithEvents.notify();
-    }
-
-  }
-
 
   @Override
   public void close() throws IOException {
-    stop();
+    try {
+      monitor.stop();
+      isReady = false;
+    } catch (Exception exc) {
+      throw new IOException("Error when stopping monitor", exc);
+    }
   }
 
   @Override
-  public WatchKey poll() {
-    WatchKey key = keysWithEvents.poll();
-
-    if (isStopped()) {
-      throw new ClosedWatchServiceException();
-    }
-
+  public PollingWatchKey poll() {
+    PollingWatchKey key = keysWithEvents.poll();
+    registeredAndActiveKeys.remove(key);
     return key;
   }
 
   @Override
-  public WatchKey poll(long timeout, TimeUnit unit) throws InterruptedException {
-    WatchKey key = keysWithEvents.poll(timeout, unit);
-
-    if (isStopped()) {
-      throw new ClosedWatchServiceException();
-    }
-
+  public PollingWatchKey poll(long timeout, TimeUnit unit) throws InterruptedException {
+    PollingWatchKey key = keysWithEvents.poll(timeout, unit);
+    registeredAndActiveKeys.remove(key);
     return key;
-
   }
 
 
   @Override
-  public WatchKey take() throws InterruptedException {
-    synchronized (keysWithEvents) {
-      while (keysWithEvents.size() == 0 && !isStopped()) {
-        keysWithEvents.wait();
-      }
-    }
-
-    if (isStopped()) {
-      throw new ClosedWatchServiceException();
-    }
-
-    // Instead of using keysWithEvents.take() we are using keysWithEvents.poll().
-    // The waiting is done with wait() because only like this we are able to
-    // notify the waiting in order to stop the thread.
-
-    return keysWithEvents.poll();
+  public PollingWatchKey take() throws InterruptedException {
+    PollingWatchKey key = keysWithEvents.take();
+    registeredAndActiveKeys.remove(key);
+    return key;
   }
-
 
   /**
-   * 
-   * 
+   *
+   *
+   * @param key
+   */
+  private void resetKey(PollingWatchKey key) {
+    registeredAndActiveKeys.add(key);
+
+    // TODO after resetting a key, look through events to see if another event has happened for this
+    // key
+  }
+
+  /**
+   * Gets the keys which were used to register the given changed path (directory or file). A path
+   * can be registered by:<br>
+   * - The direct path, triggering changes to that file/directory itself<br>
+   * - Its parent path, triggering changes within the directory<br>
+   * <br>
+   * This lookup will check the provided <code>path</code> and the parent of the provided
+   * <code>path</code>.
+   *
+   * @param path The file or directory to check
+   * @return
+   */
+  private Set<PollingWatchKey> getKeys(Path path) {
+    Path parentPath = path.getParent();
+    Set<PollingWatchKey> keys = new HashSet<>();
+    for (PollingWatchKey key : registeredAndActiveKeys) {
+      Path keyPath = key.getRegisteredPath();
+      // Check against path itself and against the parent path.
+      // The changed path could be a file/directory within a registered directory.
+      if (keyPath.equals(path) || keyPath.equals(parentPath)) {
+        keys.add(key);
+      }
+    }
+    return keys;
+  }
+
+  /**
+   *
+   *
+   * @param event
+   */
+  private void changeHappened(PollingWatchEvent event) {
+    Path path = event.context();
+    Set<PollingWatchKey> keys = getKeys(path);
+    for (PollingWatchKey key : keys) {
+      key.addWatchEvent(event);
+      keysWithEvents.add(key);
+    }
+  }
+
+  private void isReady(boolean ready) {
+    logger.debug("Is ready: {}", ready);
+    this.isReady = ready;
+  }
+
+  public boolean isReady() {
+    return isReady;
+  }
+
+  /**
+   *
+   *
    * @param path
    * @return
    */
   public PollingWatchKey register(Path path) {
-    PollingWatchKey watchKey = new PollingWatchKey();
-    registeredPaths.put(path, watchKey);
+    return register(path, null);
+  }
 
-    reset();
 
-    return watchKey;
+  /**
+   *
+   *
+   * @param path
+   * @param fileFilter
+   * @return
+   */
+  public PollingWatchKey register(Path path, FileFilter fileFilter) {
+    FileAlterationObserver observer = new FileAlterationObserver(path.toFile(), fileFilter);
+    observer.addListener(listener);
+    monitor.addObserver(observer);
+    PollingWatchKey key = new PollingWatchKey(path, this::resetKey);
+    registeredAndActiveKeys.add(key);
+    return key;
+  }
+
+
+  /*******************************************************************************************
+   *
+   *
+   * @author Thomas Naeff (github.com/thnaeff)
+   *
+   */
+  protected class PollingFileAlterationListener implements FileAlterationListener {
+
+    private final Consumer<Boolean> readyFunction;
+    private final Consumer<PollingWatchEvent> eventFunction;
+
+    private final Set<PollingWatchEvent> events;
+
+    private volatile boolean isReady = false;
+
+    public PollingFileAlterationListener(Consumer<Boolean> readyFunction,
+        Consumer<PollingWatchEvent> eventFunction) {
+      this.readyFunction = readyFunction;
+      this.eventFunction = eventFunction;
+
+      this.events = new HashSet<>();
+
+    }
+
+    @Override
+    public void onStart(FileAlterationObserver observer) {
+      logger.debug("Checking for changes: {}", observer);
+    }
+
+    @Override
+    public void onDirectoryCreate(File directory) {
+      logger.debug("onDirectoryCreate: {}", directory);
+      // TODO Should the event happen on the parent directory? Signalling that this directory was
+      // created as new entry in the parent?
+      Path path = directory.toPath();
+      PollingWatchEvent event = new PollingWatchEvent(path, StandardWatchEventKinds.ENTRY_CREATE);
+      events.add(event);
+    }
+
+    @Override
+    public void onDirectoryChange(File directory) {
+      logger.debug("onDirectoryChange: {}", directory);
+      // TODO Should the event happen on the parent directory? Signalling that this directory was
+      // created as new entry in the parent?
+      Path path = directory.toPath();
+      PollingWatchEvent event = new PollingWatchEvent(path, StandardWatchEventKinds.ENTRY_MODIFY);
+      events.add(event);
+    }
+
+    @Override
+    public void onDirectoryDelete(File directory) {
+      logger.debug("onDirectoryDelete: {}", directory);
+      // TODO Should the event happen on the parent directory? Signalling that this directory was
+      // created as new entry in the parent?
+      Path path = directory.toPath();
+      PollingWatchEvent event = new PollingWatchEvent(path, StandardWatchEventKinds.ENTRY_DELETE);
+      events.add(event);
+    }
+
+    @Override
+    public void onFileCreate(File file) {
+      logger.debug("onFileCreate: {}", file);
+      // TODO Should the event happen on the parent directory? Signalling that this file was
+      // created as new entry in the parent?
+      Path path = file.toPath();
+      PollingWatchEvent event = new PollingWatchEvent(path, StandardWatchEventKinds.ENTRY_CREATE);
+      events.add(event);
+    }
+
+    @Override
+    public void onFileChange(File file) {
+      logger.debug("onFileChange: {}", file);
+      // TODO Should the event happen on the parent directory? Signalling that this file was
+      // created as new entry in the parent?
+      Path path = file.toPath();
+      PollingWatchEvent event = new PollingWatchEvent(path, StandardWatchEventKinds.ENTRY_MODIFY);
+      events.add(event);
+    }
+
+    @Override
+    public void onFileDelete(File file) {
+      logger.debug("onFileDelete: {}", file);
+      // TODO Should the event happen on the parent directory? Signalling that this file was
+      // created as new entry in the parent?
+      Path path = file.toPath();
+      PollingWatchEvent event = new PollingWatchEvent(path, StandardWatchEventKinds.ENTRY_DELETE);
+      events.add(event);
+    }
+
+    @Override
+    public void onStop(FileAlterationObserver observer) {
+      logger.debug("Done checking for changes: {}", observer);
+
+
+      // The first time it checks for differences is when the service is ready
+      if (!isReady) {
+        isReady = true;
+        readyFunction.accept(true);
+      }
+
+      for (PollingWatchEvent event : events) {
+        // TODO send as set of events, so that same events for a key can be added to the same key
+        eventFunction.accept(event);
+      }
+
+      events.clear();
+
+    }
+
+
   }
 
 
   /*************************************************************************
-   * 
-   * 
+   *
+   *
    *
    * @author Thomas Naeff (github.com/thnaeff)
    *
    */
   protected class PollingWatchKey implements WatchKey {
 
-    private LinkedBlockingQueue<WatchEvent<?>> pollEvents = null;
+    private final Path path;
+    private LinkedBlockingQueue<WatchEvent<Path>> pollEvents = null;
+
+    private final Consumer<PollingWatchKey> resetFunction;
 
     /**
-     * 
+     *
+     *
+     * @param path
      */
-    public PollingWatchKey() {
+    public PollingWatchKey(Path path, Consumer<PollingWatchKey> resetFunction) {
+      this.path = path;
+      this.resetFunction = resetFunction;
 
-      pollEvents = new LinkedBlockingQueue<WatchEvent<?>>();
+      pollEvents = new LinkedBlockingQueue<>();
 
     }
 
+    public Path getRegisteredPath() {
+      return path;
+    }
+
     /**
-     * 
-     * 
+     *
+     *
      * @param watchEvent
      */
     public synchronized void addWatchEvent(PollingWatchEvent watchEvent) {
@@ -385,7 +390,7 @@ public class PollingWatchService extends ControlledRunnable implements WatchServ
         // Create a copy of the poll events because they might get changed
         // while the events are still being processed. Also, only the current
         // events have to be returned.
-        LinkedList<WatchEvent<?>> e = new LinkedList<WatchEvent<?>>(pollEvents);
+        LinkedList<WatchEvent<?>> e = new LinkedList<>(pollEvents);
         pollEvents.clear();
         return e;
       }
@@ -394,14 +399,18 @@ public class PollingWatchService extends ControlledRunnable implements WatchServ
 
     @Override
     public synchronized boolean reset() {
+      if (!isValid()) {
+        return false;
+      }
 
-      // TODO
+      resetFunction.accept(this);
+
       return true;
     }
 
     @Override
     public Watchable watchable() {
-      return null;
+      return path;
     }
 
 
@@ -410,8 +419,8 @@ public class PollingWatchService extends ControlledRunnable implements WatchServ
 
 
   /*************************************************************************
-   * 
-   * 
+   *
+   *
    *
    * @author Thomas Naeff (github.com/thnaeff)
    *
@@ -423,7 +432,10 @@ public class PollingWatchService extends ControlledRunnable implements WatchServ
 
 
     /**
-     * 
+     *
+     *
+     * @param path
+     * @param kind
      */
     public PollingWatchEvent(Path path, Kind<Path> kind) {
       this.path = path;
@@ -434,12 +446,14 @@ public class PollingWatchService extends ControlledRunnable implements WatchServ
 
     @Override
     public Path context() {
+      // TODO see javadoc on 'context()' method -> should be relative path to registered path
       return path;
     }
 
     @Override
     public int count() {
-      return 0;
+      // TODO
+      return 1;
     }
 
     @Override
