@@ -5,6 +5,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
  *
@@ -31,6 +34,11 @@ public class TestFileUtil {
 
   public static Path newFile(String path, String content) throws IOException {
     File newFile = new File(TEST_DIR.toFile(), path);
+    return newFile(newFile.toPath(), content);
+  }
+
+  public static Path newFile(Path inDir, String path, String content) throws IOException {
+    File newFile = new File(inDir.toFile(), path);
     return newFile(newFile.toPath(), content);
   }
 
@@ -65,6 +73,12 @@ public class TestFileUtil {
     return newDir.toPath();
   }
 
+  public static Path newDirectory(Path inDir, String path) throws IOException {
+    File newDir = new File(inDir.toFile(), path);
+    newDir.mkdirs();
+    return newDir.toPath();
+  }
+
   public static File[] getContent(String path) {
     File dir = new File(TEST_DIR.toFile(), path);
     if (!dir.exists()) {
@@ -95,9 +109,27 @@ public class TestFileUtil {
   }
 
   public static void cleanup() throws IOException {
+    List<Path> pathsInReversedDepthOrder = new ArrayList<>();
+
     if (TEST_DIR.toFile().exists()) {
-      Files.walk(TEST_DIR).forEach(path -> path.toFile().delete());
-      TEST_DIR.toFile().delete();
+      pathsInReversedDepthOrder.add(TEST_DIR);
+      Files.walk(TEST_DIR).forEach(path -> {
+        if (!pathsInReversedDepthOrder.contains(path)) {
+          pathsInReversedDepthOrder.add(path);
+        }
+      });
+    }
+
+    Collections.sort(pathsInReversedDepthOrder, (item1, item2) -> {
+      Integer length2 = Integer.valueOf(item2.toString().length());
+      return length2.compareTo(item1.toString().length());
+    });
+
+    for (Path path : pathsInReversedDepthOrder) {
+      if (path.toFile().exists() && !path.toFile().delete()) {
+        throw new IOException("Failed to clean up: "
+            + path);
+      }
     }
   }
 

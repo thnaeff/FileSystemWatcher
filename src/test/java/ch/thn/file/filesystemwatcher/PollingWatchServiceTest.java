@@ -3,13 +3,16 @@ package ch.thn.file.filesystemwatcher;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.collection.IsIterableContainingInAnyOrder.containsInAnyOrder;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.nio.file.Path;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
+import java.nio.file.WatchEvent.Kind;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -35,14 +38,15 @@ public class PollingWatchServiceTest {
   public void setup() throws Exception {
     TestFileUtil.cleanup();
 
-    assertThat(TestFileUtil.getContent().length, is(0));
+    Awaitility.await().atMost(1000, TimeUnit.MILLISECONDS)
+        .until(() -> TestFileUtil.getContent().length, is(0));
   }
 
   @After
   public void closeUp() throws Exception {
 
     // Ensure all tests stop the service
-    if (service.isReady()) {
+    if (service != null && service.isReady()) {
       service.close();
       Awaitility.await().atMost(200, TimeUnit.MILLISECONDS).until(() -> !service.isReady());
     }
@@ -277,26 +281,29 @@ public class PollingWatchServiceTest {
     TestFileUtil.deleteDir(checkDir);
     Awaitility.await().atMost(500, TimeUnit.MILLISECONDS).until(() -> !checkDir.toFile().exists());
 
-    PollingWatchKey key = service.take();
+    int totalExpectedEvents = 2;
+    List<Path> registeredPaths = new ArrayList<>();
+    List<Kind<?>> kinds = new ArrayList<>();
+    List<Path> paths = new ArrayList<>();
+    List<Integer> counts = new ArrayList<>();
 
-    assertThat(key, notNullValue());
-    // The key contains the path that was used to register
-    assertThat(key.getRegisteredPath(), is(checkDir));
+    Awaitility.await().atMost(2, TimeUnit.SECONDS).until(() -> {
+      PollingWatchKey key = service.take();
+      registeredPaths.add(key.getRegisteredPath());
+      assertThat(key, notNullValue());
+      List<WatchEvent<?>> events = key.pollEvents();
+      events.stream().map((event) -> event.kind()).forEach(kinds::add);
+      events.stream().map((event) -> event.count()).forEach(counts::add);
+      events.stream().map((event) -> ((PollingWatchEvent) event).context()).forEach(paths::add);
+      return kinds.size() == totalExpectedEvents;
+    });
 
-    List<WatchEvent<?>> events = key.pollEvents();
-    assertThat(events.size(), is(2));
-
-    PollingWatchEvent event1 = (PollingWatchEvent) events.get(0);
-    // The event contains the actual path that the event is for
-    assertThat(event1.context(), is(existingFile1));
-    assertThat(event1.count(), is(1));
-    assertThat(event1.kind(), is(StandardWatchEventKinds.ENTRY_DELETE));
-
-    PollingWatchEvent event2 = (PollingWatchEvent) events.get(1);
-    // The event contains the actual path that the event is for
-    assertThat(event2.context(), is(existingFile2));
-    assertThat(event2.count(), is(1));
-    assertThat(event2.kind(), is(StandardWatchEventKinds.ENTRY_DELETE));
+    assertThat(kinds.size(), is(totalExpectedEvents));
+    assertThat(registeredPaths, containsInAnyOrder(checkDir));
+    assertThat(kinds, containsInAnyOrder(StandardWatchEventKinds.ENTRY_DELETE,
+        StandardWatchEventKinds.ENTRY_DELETE));
+    assertThat(paths, containsInAnyOrder(existingFile1, existingFile2));
+    assertThat(counts, containsInAnyOrder(1, 1));
 
   }
 
@@ -367,5 +374,7 @@ public class PollingWatchServiceTest {
     assertThat(event.kind(), is(StandardWatchEventKinds.ENTRY_CREATE));
 
   }
+
+
 
 }
