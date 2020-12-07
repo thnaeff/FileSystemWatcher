@@ -1,21 +1,24 @@
 # FileSystemWatcher
+
 Watch one or multiple paths for file or directory changes, locally or on a network directory
 
 ---
 
 
-[![License](http://img.shields.io/badge/License-Apache v2.0-802879.svg)](http://www.apache.org/licenses/LICENSE-2.0.html)
-[![Java Version](http://img.shields.io/badge/Java-1.6%2B-2E6CB8.svg)](https://java.com)
-[![Apache Maven ready](http://img.shields.io/badge/Apache Maven ready-3.3.9%2B-FF6804.svg)](https://maven.apache.org/)
+[![License](https://img.shields.io/badge/License-Apache_v2.0-802879.svg)](https://www.apache.org/licenses/LICENSE-2.0.html)
+[![Java Version](https://img.shields.io/badge/Java-1.6%2B-2E6CB8.svg)](https://java.com)
+[![Apache Maven ready](https://img.shields.io/badge/Apache Maven ready-3.3.9%2B-FF6804.svg)](https://maven.apache.org/)
 
 
 ---
 
-The file system watcher can be set up to use the watch service that comes with java, or use a polling 
+The file system watcher can be set up to use the system watch service that comes with java, or use a polling 
 watch service in case the java watch service is not available.
 
 
 Example:
+
+```java
 
 FileSystemWatcher watcher = new FileSystemWatcher();
 
@@ -32,9 +35,12 @@ t.start();
 watcher.stop();
 
 
+```
+
 
 --------------------------------------
 
+```java
 
 class TestListener implements PathWatcherListener {
 
@@ -75,7 +81,8 @@ class TestListener implements PathWatcherListener {
 
   }
   
-  
+```
+
 ---
 
 
