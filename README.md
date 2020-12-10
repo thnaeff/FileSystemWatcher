@@ -44,7 +44,7 @@ watcher.stop();
 
 --------------------------------------
 
-##The PathWatcherListener Interface
+## The PathWatcherListener Interface
 
 
 ```java
@@ -92,6 +92,7 @@ class TestListener implements PathWatcherListener {
 
 ---
 
+# Building the Project
 
 <img src="http://maven.apache.org/images/maven-logo-black-on-white.png" alt="Built with Maven" width="150">
 
