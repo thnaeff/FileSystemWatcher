@@ -16,7 +16,6 @@ package ch.thn.file.filesystemwatcher;
 
 import java.io.File;
 import java.io.FileFilter;
-import java.io.FilenameFilter;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.StandardWatchEventKinds;
@@ -30,6 +29,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
@@ -80,12 +80,16 @@ public class PollingWatchService implements WatchService {
    *
    * @param pollTimeout The timeout to wait between two file checks (the polling interval).
    * @param timeUnit The unit of the poll timeout
-   * @param fileNameFilter A filter to only check the filtered files. This can be a big performance
-   *        improvements when dealing with large and/or many directories
+   * @param threadFactory The factory to use for creating new threads to run the polling on
    */
-  public PollingWatchService(long pollTimeout, TimeUnit timeUnit, FilenameFilter fileNameFilter) {
+  public PollingWatchService(long pollTimeout, TimeUnit timeUnit, ThreadFactory threadFactory) {
     long millis = timeUnit.toMillis(pollTimeout);
+
     monitor = new FileAlterationMonitor(millis);
+    if (threadFactory != null) {
+      monitor.setThreadFactory(threadFactory);
+    }
+
     listener = new PollingFileAlterationListener(this::isReady, this::changeHappened);
     keysWithEvents = new LinkedBlockingQueue<>();
     registeredAndActiveKeys = Collections.synchronizedSet(new HashSet<>());

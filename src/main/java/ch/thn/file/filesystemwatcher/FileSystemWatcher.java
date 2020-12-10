@@ -10,22 +10,16 @@
  * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
  * or implied. See the License for the specific language governing permissions and limitations under
  * the License.
- * 
+ *
  */
 package ch.thn.file.filesystemwatcher;
 
-import ch.thn.thread.controlledrunnable.ControlledRunnable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.File;
-import java.io.FilenameFilter;
 import java.io.IOException;
 import java.nio.file.ClosedWatchServiceException;
 import java.nio.file.FileSystems;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
@@ -39,24 +33,34 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The file system watcher watches one or multiple directories for changes. This can be file or
- * folder changes. Any registered {@link PathWatcherListener} is notified when a change occurs.
- * 
- * 
- * A lot of this code is from: http://docs.oracle.com/javase/tutorial/essential/io/notification.html
- * 
+ * folder changes. Any registered {@link PathWatcherListener} is notified when a change occurs.<br>
+ * <br>
+ * Runs as system watch service or as polling service.
+ *
+ *
+ *
  * @author Thomas Naeff (github.com/thnaeff)
  *
  */
-public class FileSystemWatcher extends ControlledRunnable {
+public class FileSystemWatcher implements Runnable {
 
   private static final Logger logger = LoggerFactory.getLogger(FileSystemWatcher.class);
 
   private WatchService watcher = null;
 
+  private ThreadFactory threadFactory = null;
+  private Thread thread = null;
+
   private boolean usePolling = false;
+  private boolean isRunning = false;
 
   /**
    * Currently watched paths and their watch keys to identify them
@@ -73,8 +77,9 @@ public class FileSystemWatcher extends ControlledRunnable {
 
 
   /**
-   * A path watcher service
-   * 
+   * A path watcher service using the file system watcher.<br />
+   * This is the preferred setup compared to using the setup with polling time.
+   *
    */
   public FileSystemWatcher() {
     this(0, null);
@@ -82,56 +87,50 @@ public class FileSystemWatcher extends ControlledRunnable {
 
   /**
    * A path watcher service with optional polling mode
-   * 
+   *
    * @param pollingTime If no time (=0) is set here, the java file system watch service is used. If
    *        a time is set (>0), the {@link PollingWatchService} is used.
+   * @param timeUnit The unit of the <code>pollingTime</code>
    */
-  public FileSystemWatcher(long pollingTime) {
-    this(pollingTime, null);
+  public FileSystemWatcher(long pollingTime, TimeUnit timeUnit) {
+    this(pollingTime, timeUnit, null);
   }
 
   /**
    * A path watcher service with optional polling mode
-   * 
-   * @param pollingTime If no time (=0) is set here, the java file system watch service is used. If
+   *
+   * @param pollingTime If no time (<=0) is set here, the java file system watch service is used. If
    *        a time is set (>0), the {@link PollingWatchService} is used.
-   * @param fileNameFilter A filter for when polling is used to only check the filtered files. This
-   *        can be a big performance improvements when dealing with large and/or many directories
+   * @param timeUnit The unit of the <code>pollingTime</code>
+   * @param threadFactory The factory which creates the thread(s) to run the watcher on
    */
-  public FileSystemWatcher(long pollingTime, FilenameFilter fileNameFilter) {
-    super(true, false);
+  public FileSystemWatcher(long pollingTime, TimeUnit timeUnit, ThreadFactory threadFactory) {
 
     // Use polling if polling time is set
-    usePolling = pollingTime != 0;
+    usePolling = pollingTime > 0 && timeUnit != null;
 
     if (usePolling) {
-      PollingWatchService w = new PollingWatchService(pollingTime, fileNameFilter);
-
-      Thread t = new Thread(w);
-      t.setDaemon(true);
-      t.start();
-      t.setName(PollingWatchService.class.getSimpleName());
-
-      watcher = w;
+      watcher = new PollingWatchService(pollingTime, timeUnit, threadFactory);
     } else {
       try {
         watcher = FileSystems.getDefault().newWatchService();
-      } catch (IOException e) {
-        throw new PathWatcherError("Failed to construct new watch service", e);
-      } catch (UnsupportedOperationException e) {
-        throw new PathWatcherError("File system seems not to support file system watching", e);
+      } catch (IOException exc) {
+        throw new PathWatcherError("Failed to construct new watch service", exc);
+      } catch (UnsupportedOperationException exc) {
+        throw new PathWatcherError("File system seems not to support file system watching. "
+            + "Try the polling functionality.", exc);
       }
     }
 
-    keys = new HashMap<WatchKey, Path>();
-    allChildren = new HashMap<WatchKey, Boolean>();
-    listeners = new ArrayList<PathWatcherListener>();
+    keys = new HashMap<>();
+    allChildren = new HashMap<>();
+    listeners = new ArrayList<>();
 
   }
 
   /**
    * Returns an unmodifiable collection of all paths which are currently being watched
-   * 
+   *
    * @return
    */
   public Collection<Path> getWatchedPaths() {
@@ -140,7 +139,7 @@ public class FileSystemWatcher extends ControlledRunnable {
 
   /**
    * Adds a {@link PathWatcherListener} which is notified when an event occurs
-   * 
+   *
    * @param l
    */
   public void addPathWatcherListener(PathWatcherListener l) {
@@ -149,7 +148,7 @@ public class FileSystemWatcher extends ControlledRunnable {
 
   /**
    * Removes a {@link PathWatcherListener}
-   * 
+   *
    * @param l
    */
   public void removePathWatcherListener(PathWatcherListener l) {
@@ -158,7 +157,7 @@ public class FileSystemWatcher extends ControlledRunnable {
 
   /**
    * Fires the listener method which matches the current event
-   * 
+   *
    * @param eventKind
    * @param path
    * @param context
@@ -188,8 +187,8 @@ public class FileSystemWatcher extends ControlledRunnable {
   }
 
   /**
-   * 
-   * 
+   *
+   *
    * @param path
    */
   public void fireNewPathWatched(Path path) {
@@ -201,7 +200,7 @@ public class FileSystemWatcher extends ControlledRunnable {
   }
 
   /**
-   * 
+   *
    */
   public void clearAllRegisteredPaths() {
     // Cancel all old keys
@@ -216,8 +215,8 @@ public class FileSystemWatcher extends ControlledRunnable {
   /**
    * Adds a new path to the list of watched paths. If a path to a file is given, its parent
    * directory is registered instead because only directories can be watched.
-   * 
-   * 
+   *
+   *
    * @param path
    * @param allChildren If set to <code>true</code>, all child directories are registered too
    * @param allParents If set to <code>true</code>, all parent directories are registered too
@@ -231,7 +230,6 @@ public class FileSystemWatcher extends ControlledRunnable {
       path = path.getParent();
     } else if (!f.exists()) {
       // The path is not a file and does not exist
-      // logger.warn("Failed to register " + path + ". Path does not exist.");
       return false;
     }
 
@@ -253,8 +251,8 @@ public class FileSystemWatcher extends ControlledRunnable {
   /**
    * Adds a new path to the list of watched paths. If a path to a file is given, its parent
    * directory is registered instead because only directories can be watched.
-   * 
-   * 
+   *
+   *
    * @param path
    * @param allChildren If set to <code>true</code>, all child directories are registered too
    * @param allParents If set to <code>true</code>, all parent directories are registered too
@@ -266,7 +264,7 @@ public class FileSystemWatcher extends ControlledRunnable {
 
   /**
    * Adds a new path to the list of watched paths.
-   * 
+   *
    * @param path
    * @return
    */
@@ -276,7 +274,7 @@ public class FileSystemWatcher extends ControlledRunnable {
 
   /**
    * Adds a new path to the list of watched paths.
-   * 
+   *
    * @param path
    * @return
    */
@@ -286,7 +284,7 @@ public class FileSystemWatcher extends ControlledRunnable {
 
   /**
    * Registers the given path for all the events
-   * 
+   *
    * @param dir
    * @param allChildren
    * @return
@@ -300,8 +298,11 @@ public class FileSystemWatcher extends ControlledRunnable {
       if (usePolling) {
         key = ((PollingWatchService) watcher).register(dir);
       } else {
+        // 'Path' only accepts an sun.nio.fsAbstractWatchService (checked internally with
+        // 'instanceof') which contains a 'register' method that will get called
         key = dir.register(watcher, StandardWatchEventKinds.ENTRY_CREATE,
-            StandardWatchEventKinds.ENTRY_DELETE, StandardWatchEventKinds.ENTRY_MODIFY);
+            StandardWatchEventKinds.ENTRY_DELETE, StandardWatchEventKinds.ENTRY_MODIFY,
+            StandardWatchEventKinds.OVERFLOW);
       }
     } catch (Exception e) {
       throw new PathWatcherError("Failed to register path "
@@ -319,7 +320,7 @@ public class FileSystemWatcher extends ControlledRunnable {
 
   /**
    * Walks through the file tree and registers all child paths
-   * 
+   *
    * @param path
    * @throws IOException
    */
@@ -332,22 +333,20 @@ public class FileSystemWatcher extends ControlledRunnable {
           try {
             register(dir, true);
           } catch (Exception e) {
-            logger.warn("Failed to recursively register child path "
-                + dir, e);
+            logger.warn("Failed to recursively register child path {}", dir, e);
           }
           return FileVisitResult.CONTINUE;
         }
       });
     } catch (IOException e) {
-      logger.warn("Failed to recursively register path and children of "
-          + path, e);
+      logger.warn("Failed to recursively register path and children of {}", path, e);
     }
 
   }
 
   /**
    * Walks upwards through the file tree and registers all parent paths
-   * 
+   *
    * @param path
    * @throws IOException
    */
@@ -358,82 +357,130 @@ public class FileSystemWatcher extends ControlledRunnable {
       try {
         register(p, false);
       } catch (Exception e) {
-        logger.warn("Failed to recursively register parent path "
-            + path, e);
+        logger.warn("Failed to recursively register parent path {}", path, e);
       }
       p = p.getParent();
     }
 
   }
 
-
-  @SuppressWarnings("unchecked")
-  static <T> WatchEvent<T> cast(WatchEvent<?> event) {
-    return (WatchEvent<T>) event;
+  public boolean isRunning() {
+    return isRunning;
   }
 
+  /**
+   *
+   *
+   * @throws IOException
+   */
+  public void start() throws IOException {
+    if (isRunning) {
+      throw new IllegalStateException("Watch service is already running");
+    }
+
+    if (usePolling) {
+      startPolling();
+    }
+
+    startWatchService();
+    isRunning = true;
+  }
+
+  /**
+   *
+   *
+   * @throws IOException
+   */
+  private void startPolling() throws IOException {
+    try {
+      ((PollingWatchService) watcher).start();
+    } catch (IOException exc) {
+      throw new IOException("Failed to start watch service", exc);
+    }
+  }
+
+  /**
+   *
+   *
+   */
+  private void startWatchService() {
+    if (threadFactory != null) {
+      thread = threadFactory.newThread(this);
+    } else {
+      thread = new Thread(this);
+    }
+    thread.start();
+  }
+
+  /**
+   *
+   *
+   * @throws IOException
+   */
+  public void stop() throws IOException {
+    if (!isRunning) {
+      throw new IllegalStateException("Watch service is not running");
+    }
+
+    stopWatchService(0, null);
+    isRunning = false;
+  }
+
+  /**
+   *
+   *
+   * @param waitTimeout The amount of time to wait until the thread finished
+   * @param timeUnit The unit of the provided time
+   * @throws IOException
+   */
+  public void stop(long waitTimeout, TimeUnit timeUnit) throws IOException {
+    if (!isRunning) {
+      throw new IllegalStateException("Watch service is not running");
+    }
+
+    stopWatchService(waitTimeout, timeUnit);
+    isRunning = false;
+  }
+
+  /**
+   *
+   *
+   * @param waitTimeout The amount of time to wait until the thread finished. Not used if < 0.
+   * @param timeUnit The unit of the provided time. Can be <code>null</code>.
+   * @throws IOException
+   */
+  private void stopWatchService(long waitTimeout, TimeUnit timeUnit) throws IOException {
+    watcher.close();
+
+    try {
+      thread.interrupt();
+      if (waitTimeout >= 0 && timeUnit != null) {
+        thread.join(timeUnit.toMillis(waitTimeout));
+      }
+    } catch (final InterruptedException exc) {
+      Thread.currentThread().interrupt();
+    }
+  }
 
   @Override
   public void run() {
-    runStart();
 
-    while (!isStopRequested()) {
-      runPause(false);
-
-      // Check if just stop requested or pausing exited because stop has been requested
-      if (isStopRequested()) {
-        break;
-      }
+    while (isRunning) {
 
       WatchKey key = null;
 
       try {
         key = watcher.take();
-      } catch (InterruptedException e) {
+      } catch (InterruptedException exc) {
+        Thread.currentThread().interrupt();
         continue;
-      } catch (ClosedWatchServiceException e) {
+      } catch (ClosedWatchServiceException exc) {
         break;
-      }
-
-      // Check if stop has been requested while waiting for a change
-      if (isStopRequested()) {
-        key.reset();
-        break;
-      }
-
-      // Check if pause has been requested while waiting for a change
-      // If paused, just don't process the keys and go to the beginning for pausing
-      if (isPauseRequested()) {
-        key.reset();
-        continue;
       }
 
       Path dir = keys.get(key);
 
-      for (WatchEvent<?> event : key.pollEvents()) {
-        Kind<?> kind = event.kind();
-
-        // TODO is overflow handled correctly?
-        if (event == StandardWatchEventKinds.OVERFLOW) {
-          firePathWatcherListener(kind, dir, null, true);
-          continue;
-        }
-
-        WatchEvent<Path> ev = cast(event);
-        Path name = ev.context();
-        Path child = dir.resolve(name);
-
-        firePathWatcherListener(kind, dir, child, false);
-
-        // Add new directories and their child directories to the watch
-        if (allChildren.get(key) && kind == StandardWatchEventKinds.ENTRY_CREATE) {
-          if (Files.isDirectory(child, LinkOption.NOFOLLOW_LINKS)) {
-            registerAllChildren(child);
-          }
-        }
-
-      }
-
+      processEvents(key, dir);
 
       boolean valid = key.reset();
       if (!valid) {
@@ -445,39 +492,47 @@ public class FileSystemWatcher extends ControlledRunnable {
 
     clearAllRegisteredPaths();
 
-    runEnd();
   }
 
   /**
-   * 
-   * 
+   *
+   *
+   * @param key
+   * @param dir
    */
-  private void closeWatcher() {
-    try {
-      watcher.close();
-    } catch (IOException e) {
+  private void processEvents(WatchKey key, Path dir) {
+    for (WatchEvent<?> event : key.pollEvents()) {
+      Kind<?> kind = event.kind();
+
+      // TODO is overflow handled correctly?
+      if (event == StandardWatchEventKinds.OVERFLOW) {
+        firePathWatcherListener(kind, dir, null, true);
+        continue;
+      }
+
+      @SuppressWarnings("unchecked")
+      WatchEvent<Path> ev = (WatchEvent<Path>) event;
+      Path name = ev.context();
+      Path child = dir.resolve(name);
+
+      firePathWatcherListener(kind, dir, child, false);
+
+      // Add new directories and their child directories to the watch
+      if (Boolean.TRUE.equals(allChildren.get(key))
+          && kind == StandardWatchEventKinds.ENTRY_CREATE) {
+        if (child.toFile().isDirectory()) {
+          registerAllChildren(child);
+        }
+      }
+
     }
-  }
-
-  @Override
-  public void stop() {
-    // Close the watcher to have it exit the waiting watcher.take()
-    closeWatcher();
-    super.stop();
-  }
-
-  @Override
-  public void stop(boolean wait) {
-    // Close the watcher to have it exit the waiting watcher.take()
-    closeWatcher();
-    super.stop(wait);
   }
 
 
 
   /**************************************************************************
-   * 
-   * 
+   *
+   *
    * @author Thomas Naeff (github.com/thnaeff)
    *
    */
@@ -485,8 +540,8 @@ public class FileSystemWatcher extends ControlledRunnable {
     private static final long serialVersionUID = -2064090030585897604L;
 
     /**
-     * 
-     * 
+     *
+     *
      * @param msg
      * @param e
      */

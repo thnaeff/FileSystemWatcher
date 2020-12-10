@@ -1,16 +1,20 @@
 package ch.thn.file.filesystemwatcher;
 
 import static org.hamcrest.CoreMatchers.hasItem;
-import static org.junit.Assert.assertThat;
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.greaterThan;
 import static org.junit.Assert.assertTrue;
-
-import org.junit.Test;
 
 import java.io.File;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+
+import org.awaitility.Awaitility;
+import org.junit.Test;
 
 
 /**
@@ -35,13 +39,11 @@ public class ListenerTest {
 
     FileSystemWatcher watcher = new FileSystemWatcher();
     watcher.addPathWatcherListener(new TestListener());
-
-    // Needs to be properly used in a thread for the reporting
-    Thread t = new Thread(watcher);
-    t.start();
+    watcher.start();
 
     // Give thread time to start...
-    Thread.sleep(1000);
+    Awaitility.await().atMost(1, TimeUnit.SECONDS).until(() -> watcher.isRunning());
+
 
     File f = new File("target/classes");
     File f2 = new File(f.getPath()
@@ -75,8 +77,10 @@ public class ListenerTest {
     // Check that deletion worked
     assertTrue(res);
 
-    // Give the watcher time to react...
-    Thread.sleep(1000);
+    // Give it time to react
+    Awaitility.await().atMost(1, TimeUnit.SECONDS).until(createDetected::size, is(greaterThan(0)));
+    Awaitility.await().atMost(1, TimeUnit.SECONDS).until(deleteDetected::size, is(greaterThan(0)));
+
 
     System.out.println("All created: "
         + createDetected);
@@ -89,7 +93,8 @@ public class ListenerTest {
 
 
     System.out.println("Shutting down watcher thread...");
-    watcher.stop(true);
+    watcher.stop();
+    Awaitility.await().atMost(1, TimeUnit.SECONDS).until(() -> !watcher.isRunning());
     System.out.println("Done");
 
   }

@@ -1,18 +1,18 @@
 package ch.thn.file.filesystemwatcher;
 
 import static org.hamcrest.CoreMatchers.hasItem;
-import static org.junit.Assert.assertThat;
-
-import org.junit.Test;
+import static org.hamcrest.MatcherAssert.assertThat;
 
 import java.io.File;
 import java.nio.file.Path;
 import java.util.Collection;
 
+import org.junit.Test;
+
 
 /**
- * 
- * 
+ *
+ *
  * @author Thomas Naeff (github.com/thnaeff)
  *
  */
