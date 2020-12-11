@@ -8,12 +8,11 @@ import static org.junit.Assert.assertTrue;
 
 import java.io.File;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import org.awaitility.Awaitility;
+import org.junit.Before;
 import org.junit.Test;
 
 
@@ -26,70 +25,65 @@ import org.junit.Test;
 public class ListenerTest {
 
 
-  private final Collection<Path> watchedPaths = new ArrayList<>();
-
-  private final List<Path> changeDetected = new ArrayList<>();
-  private final List<Path> createDetected = new ArrayList<>();
-  private final List<Path> deleteDetected = new ArrayList<>();
-  private final List<Path> modifyDetected = new ArrayList<>();
-
+  @Before
+  public void setup() throws Exception {
+    TestFileUtil.cleanup();
+  }
 
   @Test
   public void testListener() throws Exception {
 
     FileSystemWatcher watcher = new FileSystemWatcher();
-    watcher.addPathWatcherListener(new TestListener());
+    watcher.create();
+    TestListener testListener = new TestListener();
+    watcher.addPathWatcherListener(testListener);
     watcher.start();
 
     // Give thread time to start...
     Awaitility.await().atMost(1, TimeUnit.SECONDS).until(() -> watcher.isRunning());
 
 
-    File f = new File("target/classes");
-    File f2 = new File(f.getPath()
-        + "/test_new");
+    Path testDir = TestFileUtil.newTestDirectory();
+    File newDir = new File(testDir.toFile(), "test_new");
 
-    // Clean up first if path exists
-    if (f2.exists()) {
-      f2.delete();
-    }
-
-    watcher.registerPath(f.toPath(), true, true);
+    watcher.registerPath(testDir, true, true);
 
 
     Collection<Path> paths = watcher.getWatchedPaths();
 
-    assertTrue(paths.containsAll(watchedPaths));
+    assertTrue(paths.containsAll(testListener.watchedPaths));
 
 
 
     System.out.println("> Creating "
-        + f2.getPath());
-    boolean res = f2.mkdir();
+        + newDir.getPath());
+    boolean res = newDir.mkdir();
 
     // Check that creation worked
     assertTrue(res);
 
     System.out.println("> Deleting "
-        + f2.getPath());
-    res = f2.delete();
+        + newDir.getPath());
+    res = newDir.delete();
 
     // Check that deletion worked
     assertTrue(res);
 
     // Give it time to react
-    Awaitility.await().atMost(1, TimeUnit.SECONDS).until(createDetected::size, is(greaterThan(0)));
-    Awaitility.await().atMost(1, TimeUnit.SECONDS).until(deleteDetected::size, is(greaterThan(0)));
+    Awaitility.await().atMost(1, TimeUnit.SECONDS).until(testListener.createDetected::size,
+        is(greaterThan(0)));
+    Awaitility.await().atMost(1, TimeUnit.SECONDS).until(testListener.deleteDetected::size,
+        is(greaterThan(0)));
 
 
     System.out.println("All created: "
-        + createDetected);
+        + testListener.createDetected);
     System.out.println("All deleted: "
-        + deleteDetected);
+        + testListener.deleteDetected);
 
     // Check that creation and deletion was reported by watcher
-    assertThat(createDetected, hasItem(f2.toPath()));
-    assertThat(deleteDetected, hasItem(f2.toPath()));
+    assertThat(testListener.createDetected, hasItem(newDir.toPath()));
+    assertThat(testListener.deleteDetected, hasItem(newDir.toPath()));
 
 
     System.out.println("Shutting down watcher thread...");
@@ -99,73 +93,5 @@ public class ListenerTest {
 
   }
 
-
-
-  /********************************************************************************
-   *
-   *
-   * @author Thomas Naeff (github.com/thnaeff)
-   *
-   */
-  private class TestListener implements PathWatcherListener {
-
-    @Override
-    public void newPathWatched(Path path) {
-
-      System.out.println("New path watched: "
-          + path);
-      watchedPaths.add(path);
-
-    }
-
-    @Override
-    public void pathChanged(Path path, Path context, boolean overflow) {
-
-      System.out.println("Changed:");
-      System.out.println("  Path="
-          + path);
-      System.out.println("  Change="
-          + context);
-      changeDetected.add(path);
-
-    }
-
-    @Override
-    public void directoryCreated(Path path, Path created) {
-
-      System.out.println("Created:");
-      System.out.println("  Path="
-          + path);
-      System.out.println("  New="
-          + created);
-      createDetected.add(created);
-
-    }
-
-    @Override
-    public void directoryDeleted(Path path, Path deleted) {
-
-      System.out.println("Deleted:");
-      System.out.println("  Path="
-          + path);
-      System.out.println("  Del="
-          + deleted);
-      deleteDetected.add(deleted);
-
-    }
-
-    @Override
-    public void directoryModified(Path path, Path modified) {
-
-      System.out.println("Modified:");
-      System.out.println("  Path="
-          + path);
-      System.out.println("  Mod="
-          + modified);
-      modifyDetected.add(modified);
-
-    }
-
-  }
 
 }

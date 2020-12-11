@@ -19,15 +19,6 @@ public class TestFileUtil {
 
   public static final Path TEST_DIR = Path.of("target", "test_dir");
 
-  static {
-    if (!TEST_DIR.toFile().exists()) {
-      if (!TEST_DIR.toFile().mkdirs()) {
-        throw new RuntimeException("Failed to set up test directory "
-            + TEST_DIR);
-      }
-    }
-  }
-
   private TestFileUtil() {
     // Private. Only static methods.
   }
@@ -57,26 +48,36 @@ public class TestFileUtil {
       path = newFile.toPath();
     }
     File newFile = path.toFile();
-    newFile.getParentFile().mkdirs();
+    mkdir(newFile.getParentFile());
     Path pathObj = newFile.toPath();
     Files.writeString(pathObj, content, operation);
     return pathObj;
   }
 
-  public static Path testDirectory() {
+  public static Path newTestDirectory() {
+    mkdir(TEST_DIR.toFile());
     return TEST_DIR;
   }
 
   public static Path newDirectory(String path) throws IOException {
     File newDir = new File(TEST_DIR.toFile(), path);
-    newDir.mkdirs();
+    mkdir(newDir);
     return newDir.toPath();
   }
 
   public static Path newDirectory(Path inDir, String path) throws IOException {
     File newDir = new File(inDir.toFile(), path);
-    newDir.mkdirs();
+    mkdir(newDir);
     return newDir.toPath();
+  }
+
+  private static void mkdir(File newDir) {
+    if (!newDir.exists()) {
+      if (!newDir.mkdirs()) {
+        throw new RuntimeException("Failed to set up directory "
+            + newDir);
+      }
+    }
   }
 
   public static File[] getContent(String path) {

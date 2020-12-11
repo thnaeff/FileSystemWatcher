@@ -68,10 +68,6 @@
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-checkstyle-plugin</artifactId>
-				<configuration>
-					<!-- Skip until all issues are resolved -->
-					<skip>true</skip>
-				</configuration>
 			</plugin>
 
 		</plugins>

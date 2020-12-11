@@ -37,9 +37,6 @@ public class PollingWatchServiceTest {
   @Before
   public void setup() throws Exception {
     TestFileUtil.cleanup();
-
-    Awaitility.await().atMost(1000, TimeUnit.MILLISECONDS)
-        .until(() -> TestFileUtil.getContent().length, is(0));
   }
 
   @After
@@ -59,7 +56,7 @@ public class PollingWatchServiceTest {
   public void testServiceStartsAndStops() throws Exception {
     service = new PollingWatchService(1, TimeUnit.SECONDS);
 
-    Path checkDir = TestFileUtil.testDirectory();
+    Path checkDir = TestFileUtil.newTestDirectory();
     service.register(checkDir);
     service.start();
 
@@ -78,7 +75,7 @@ public class PollingWatchServiceTest {
     int pollIntervalMilliSeconds = 2000;
     service = new PollingWatchService(pollIntervalMilliSeconds, TimeUnit.MILLISECONDS);
 
-    Path checkDir = TestFileUtil.testDirectory();
+    Path checkDir = TestFileUtil.newTestDirectory();
     service.register(checkDir);
     service.start();
 
@@ -101,7 +98,7 @@ public class PollingWatchServiceTest {
     int pollIntervalMilliSeconds = 5000;
     service = new PollingWatchService(pollIntervalMilliSeconds, TimeUnit.MILLISECONDS);
 
-    Path checkDir = TestFileUtil.testDirectory();
+    Path checkDir = TestFileUtil.newTestDirectory();
     service.register(checkDir);
     service.start();
 
@@ -123,7 +120,7 @@ public class PollingWatchServiceTest {
   public void testSingleDirWatchFileCreate() throws Exception {
     service = new PollingWatchService(1, TimeUnit.SECONDS);
 
-    Path checkDir = TestFileUtil.testDirectory();
+    Path checkDir = TestFileUtil.newTestDirectory();
     service.register(checkDir);
     service.start();
 
@@ -158,7 +155,7 @@ public class PollingWatchServiceTest {
     Path existingFile =
         TestFileUtil.newFile("existingFile.txt", "a file that exists before watching starts");
 
-    Path checkDir = TestFileUtil.testDirectory();
+    Path checkDir = TestFileUtil.newTestDirectory();
     assertThat(TestFileUtil.getContent(checkDir).length, is(1));
     service.register(checkDir);
     service.start();
@@ -195,7 +192,7 @@ public class PollingWatchServiceTest {
     Path existingFile =
         TestFileUtil.newFile("existingFile.txt", "a file that exists before watching starts");
 
-    Path checkDir = TestFileUtil.testDirectory();
+    Path checkDir = TestFileUtil.newTestDirectory();
     assertThat(TestFileUtil.getContent(checkDir).length, is(1));
     service.register(checkDir);
     service.start();
@@ -232,7 +229,7 @@ public class PollingWatchServiceTest {
     Path existingFile =
         TestFileUtil.newFile("existingFile.txt", "a file that exists before watching starts");
 
-    Path checkDir = TestFileUtil.testDirectory();
+    Path checkDir = TestFileUtil.newTestDirectory();
     assertThat(TestFileUtil.getContent(checkDir).length, is(1));
     service.register(checkDir);
     service.start();
@@ -270,7 +267,7 @@ public class PollingWatchServiceTest {
     Path existingFile2 =
         TestFileUtil.newFile("existingFile2.txt", "a file 2 that exists before watching starts");
 
-    Path checkDir = TestFileUtil.testDirectory();
+    Path checkDir = TestFileUtil.newTestDirectory();
     assertThat(TestFileUtil.getContent(checkDir).length, is(2));
     service.register(checkDir);
     service.start();
@@ -314,7 +311,7 @@ public class PollingWatchServiceTest {
 
     Path existingDir = TestFileUtil.newDirectory("testDir");
 
-    Path checkDir = TestFileUtil.testDirectory();
+    Path checkDir = TestFileUtil.newTestDirectory();
     assertThat(TestFileUtil.getContent(checkDir).length, is(1));
     service.register(checkDir);
     service.start();
@@ -347,7 +344,7 @@ public class PollingWatchServiceTest {
   public void testSingleDirDirectoryCreate() throws Exception {
     service = new PollingWatchService(1, TimeUnit.SECONDS);
 
-    Path checkDir = TestFileUtil.testDirectory();
+    Path checkDir = TestFileUtil.newTestDirectory();
     assertThat(TestFileUtil.getContent(checkDir).length, is(0));
     service.register(checkDir);
     service.start();

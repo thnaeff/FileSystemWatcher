@@ -80,7 +80,8 @@ public class PollingWatchService implements WatchService {
    *
    * @param pollTimeout The timeout to wait between two file checks (the polling interval).
    * @param timeUnit The unit of the poll timeout
-   * @param threadFactory The factory to use for creating new threads to run the polling on
+   * @param threadFactory The factory to use for creating new threads to run the polling on. Can be
+   *        <code>null</code>.
    */
   public PollingWatchService(long pollTimeout, TimeUnit timeUnit, ThreadFactory threadFactory) {
     long millis = timeUnit.toMillis(pollTimeout);
@@ -107,6 +108,15 @@ public class PollingWatchService implements WatchService {
   public void close() throws IOException {
     try {
       monitor.stop();
+      isReady = false;
+    } catch (Exception exc) {
+      throw new IOException("Error when stopping monitor", exc);
+    }
+  }
+
+  public void close(long timeout, TimeUnit timeUnit) throws IOException {
+    try {
+      monitor.stop(timeUnit.toMillis(timeout));
       isReady = false;
     } catch (Exception exc) {
       throw new IOException("Error when stopping monitor", exc);
